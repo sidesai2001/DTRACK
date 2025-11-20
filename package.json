@@ -1,0 +1,46 @@
+{
+  "name": "streamlit-electron-app",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux"
+  },
+  "build": {
+    "appId": "com.yourcompany.streamlitapp",
+    "productName": "Your Streamlit App",
+    "files": [
+      "main.js",
+      "streamlit-app/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "streamlit-app",
+        "to": "streamlit-app"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "mac": {
+      "target": "dmg",
+      "icon": "icon.icns"
+    },
+    "linux": {
+      "target": "AppImage",
+      "icon": "icon.png"
+    }
+  },
+  "devDependencies": {
+    "electron": "^27.3.11",
+    "electron-builder": "^24.13.3"
+  },
+  "description": "This version fixes `UnboundLocalError: pd`, improves error handling, and adds mobile-friendly UI.\r It includes a mock scanner so you can test without hardware. Optional webcam scanning is auto-detected\r if you install `streamlit-webcam-qrcode-scanner`.",
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
