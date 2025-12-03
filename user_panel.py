@@ -25,6 +25,45 @@ def safe_dataframe(rows, table: str):
     except Exception:
         return pd.DataFrame([])
 
+def get_subusers_with_hdd(parent_user):
+    """Get set of subuser usernames that have HDDs assigned"""
+    try:
+        with db_connection() as conn:
+            c = conn.cursor()
+            assigned = c.execute("""
+                SELECT DISTINCT assigned_subuser FROM hdd_records 
+                WHERE team_code=? AND assigned_subuser IS NOT NULL AND assigned_subuser != ''
+            """, (parent_user,)).fetchall()
+            return {a['assigned_subuser'] for a in assigned}
+    except:
+        return set()
+
+def format_subuser_list_with_hdd_status(subusers, parent_user):
+    """Format subuser list with color indicators for HDD assignment status"""
+    subusers_with_hdd = get_subusers_with_hdd(parent_user)
+    
+    formatted_list = []
+    for s in subusers:
+        uname = s['username']
+        if uname in subusers_with_hdd:
+            formatted_list.append(f"🔴 {uname} (has HDD)")
+        else:
+            formatted_list.append(f"🟢 {uname}")
+    
+    return formatted_list
+
+def extract_username_from_selection(selection):
+    """Extract actual username from formatted selection string"""
+    if not selection or selection == "":
+        return None
+    # Remove emoji and status indicator
+    if selection.startswith("🔴 ") or selection.startswith("🟢 "):
+        uname = selection[2:].strip()  # Remove emoji
+        if " (has HDD)" in uname:
+            uname = uname.replace(" (has HDD)", "")
+        return uname
+    return selection
+
 def render_my_hdds_tab(user):
     """View HDDs assigned by admin to this user"""
     st.subheader("💿 My Assigned HDDs")
@@ -93,7 +132,7 @@ def render_assign_to_subuser_tab(user):
             selected_hdd = st.selectbox("Select HDD", hdd_list if hdd_list else [""])
         
         with col2:
-            # Get subusers under this user
+            # Get subusers under this user with HDD status
             try:
                 with db_connection() as conn:
                     c = conn.cursor()
@@ -101,15 +140,17 @@ def render_assign_to_subuser_tab(user):
                         SELECT username FROM users 
                         WHERE role='subuser' AND parent_user=?
                     """, (user,)).fetchall()
-                    subuser_list = [s['username'] for s in subusers]
+                    subuser_list = format_subuser_list_with_hdd_status(subusers, user)
             except:
                 subuser_list = []
             
-            subuser = st.selectbox("Assign to Subuser", subuser_list if subuser_list else [""])
+            subuser_selection = st.selectbox("Assign to Subuser", subuser_list if subuser_list else [""])
+            st.caption("🟢 = Available | 🔴 = Already has HDD")
         
         notes = st.text_area("Assignment Notes", placeholder="Instructions for subuser...")
         
         if st.form_submit_button("📤 Assign to Subuser", use_container_width=True):
+            subuser = extract_username_from_selection(subuser_selection)
             if not selected_hdd or not subuser:
                 st.error("⚠️ Select HDD and Subuser")
             else:
@@ -247,7 +288,7 @@ def render_create_subuser_tab(user):
     
     st.info("ℹ️ Create temporary subusers for data entry. Auto-expires in 7 days.")
     
-    # Show existing subusers
+    # Show existing subusers with HDD status
     try:
         with db_connection() as conn:
             c = conn.cursor()
@@ -261,7 +302,17 @@ def render_create_subuser_tab(user):
     
     if subusers:
         st.markdown("##### My Subusers")
-        df = safe_dataframe(subusers, "users")
+        # Add HDD status column to dataframe
+        subusers_with_hdd = get_subusers_with_hdd(user)
+        df_data = []
+        for s in subusers:
+            has_hdd = "🔴 Yes" if s['username'] in subusers_with_hdd else "🟢 No"
+            df_data.append({
+                "Username": s['username'],
+                "Valid Till": s['valid_till'],
+                "Has HDD": has_hdd
+            })
+        df = pd.DataFrame(df_data)
         st.dataframe(df, use_container_width=True, height=200)
     
     st.markdown("##### ➕ Create New Subuser")

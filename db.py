@@ -71,6 +71,7 @@ def init_db():
             extracted_by TEXT,
             working_copy_sns TEXT,
             date_receiving TEXT,
+            assigned_user TEXT,
             created_by TEXT,
             created_on TEXT,
             FOREIGN KEY (original_hdd_sn) REFERENCES hdd_records(serial_no)
@@ -102,6 +103,33 @@ def init_db():
         )
     """)
     
+    # Options table for Units and Vendors
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS options (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            UNIQUE(type, name)
+        )
+    """)
+    
+    # Insert default units if table is empty
+    c.execute("SELECT COUNT(*) FROM options WHERE type='unit'")
+    if c.fetchone()[0] == 0:
+        default_units = [
+            "4(1) Delhi", "4(2) Mumbai", "4(3) Kolkata", "4(4) Chennai",
+            "4(5) Hyderabad", "4(6) Bangalore", "4(7) Lucknow", "4(8) Chandigarh"
+        ]
+        for u in default_units:
+            c.execute("INSERT OR IGNORE INTO options (type, name) VALUES ('unit', ?)", (u,))
+    
+    # Insert default vendors if table is empty
+    c.execute("SELECT COUNT(*) FROM options WHERE type='vendor'")
+    if c.fetchone()[0] == 0:
+        default_vendors = ["Cyint", "TechForensics", "DataRecovery Pro"]
+        for v in default_vendors:
+            c.execute("INSERT OR IGNORE INTO options (type, name) VALUES ('vendor', ?)", (v,))
+    
     # Indexes
     c.execute("CREATE INDEX IF NOT EXISTS idx_hdd_team ON hdd_records(team_code)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_hdd_subuser ON hdd_records(assigned_subuser)")
@@ -109,6 +137,7 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_hdd_status ON hdd_records(status)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_role ON users(role)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_users_parent ON users(parent_user)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_options_type ON options(type)")
     
     conn.commit()
     conn.close()

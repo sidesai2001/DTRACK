@@ -88,7 +88,7 @@ function startStreamlit() {
   
   streamlitProcess = spawn(pythonPath, [
     '-m', 'streamlit', 'run',
-    path.join(__dirname, 'streamlit-app', 'app.py'),
+    path.join(__dirname, 'app.py'),
     '--server.headless=true',
     '--server.port=8501',
     '--browser.serverAddress=localhost',

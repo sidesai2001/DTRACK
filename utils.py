@@ -43,3 +43,42 @@ def ensure_default_admin():
         c.execute('INSERT INTO users(username, password_hash, role, approved) VALUES (?,?,?,1)', ('admin', pw_hash, 'admin'))
         conn.commit()
     conn.close()
+
+def fix_selectbox_color():
+    st.markdown("""
+        <style>
+
+        /* Fix selected text inside the selectbox */
+        div[data-baseweb="select"] > div {
+            color: black !important;
+        }
+
+        /* Fix dropdown menu text */
+        div[data-baseweb="menu"] div {
+            color: black !important;
+        }
+
+        /* Fix placeholder text */
+        div[data-baseweb="select"] span {
+            color: black !important;
+        }
+
+        /* Fix selected item highlight */
+        div[data-baseweb="select"] [aria-selected="true"] {
+            background-color: #dce6ff !important;
+            color: black !important;
+        }
+
+        /* Control itself (the box) */
+        div[data-baseweb="select"] {
+            background-color: white !important;
+            color: black !important;
+        }
+
+        /* Fix arrow icon visibility */
+        div[data-baseweb="select"] svg {
+            fill: black !important;
+        }
+
+        </style>
+    """, unsafe_allow_html=True)

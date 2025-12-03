@@ -25,106 +25,307 @@ def safe_dataframe(rows, table: str):
     except Exception:
         return pd.DataFrame([])
 
-def render_add_hdd_tab(user):
-    """Admin adds HDD to system (only admin can do this)"""
-    st.subheader("💿 Add New HDD")
-    
-    with st.form("add_hdd_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            serial_no = st.text_input("Serial No", placeholder="Scan or enter S.N.")
-            unit = st.text_input("Unit", value="4(1) Delhi")
-            hd_space = st.selectbox("HD Space", ["1TB", "2TB SSD", "4TB", "8TB"])
-        
-        with col2:
-            status = st.selectbox("Initial Status", ["available", "sealed"])
-            notes = st.text_area("Notes", placeholder="Initial notes...")
-        
-        if st.form_submit_button("💾 Add HDD", use_container_width=True):
-            if not serial_no:
-                st.error("⚠️ Serial No required")
-            else:
-                try:
-                    with db_connection() as conn:
-                        c = conn.cursor()
-                        now = datetime.utcnow().isoformat()
-                        c.execute("""
-                            INSERT INTO hdd_records 
-                            (serial_no, unit, unit_space, status, created_by, created_on, barcode_value, data_details)
-                            VALUES (?,?,?,?,?,?,?,?)
-                        """, (serial_no, unit, hd_space, status, user, now, serial_no, notes))
-                        conn.commit()
-                    st.success(f"✅ HDD {serial_no} added to system")
-                    log_action(user, f"add_hdd:{serial_no}")
-                    st.rerun()
-                except Exception as e:
-                    if 'unique' in str(e).lower():
-                        st.error("❌ Serial No already exists")
-                    else:
-                        st.error(f"❌ Error: {e}")
+# Default options (used if DB empty)
+DEFAULT_UNITS = ["4(1) Delhi", "4(2) Mumbai", "4(3) Kolkata", "4(4) Chennai", 
+                 "4(5) Hyderabad", "4(6) Bangalore", "4(7) Lucknow", "4(8) Chandigarh"]
+DEFAULT_VENDORS = ["Cyint", "TechForensics", "DataRecovery Pro"]
 
-def render_assign_hdd_tab(user):
-    """Admin assigns HDD to conducting team (User)"""
-    st.subheader("📤 Assign HDD to User")
+def get_options(option_type):
+    """Get units or vendors from DB"""
+    try:
+        with db_connection() as conn:
+            c = conn.cursor()
+            c.execute("SELECT name FROM options WHERE type=? ORDER BY name", (option_type,))
+            rows = c.fetchall()
+            if rows:
+                return [r['name'] for r in rows]
+    except:
+        pass
+    return DEFAULT_UNITS if option_type == 'unit' else DEFAULT_VENDORS
+
+def get_users_with_hdd():
+    """Get set of usernames that have HDDs currently assigned"""
+    try:
+        with db_connection() as conn:
+            c = conn.cursor()
+            assigned = c.execute("""
+                SELECT DISTINCT team_code FROM hdd_records 
+                WHERE team_code IS NOT NULL AND team_code != '' AND status='issued'
+            """).fetchall()
+            return {a['team_code'] for a in assigned}
+    except:
+        return set()
+
+def format_user_list_with_hdd_status(users, include_not_assigned=False):
+    """Format user list with color indicators for HDD assignment status"""
+    users_with_hdd = get_users_with_hdd()
     
-    with st.form("assign_hdd_form", clear_on_submit=True):
+    user_list = []
+    if include_not_assigned:
+        user_list.append("-- Not Assigned --")
+    
+    for u in users:
+        uname = u['username']
+        if uname in users_with_hdd:
+            user_list.append(f"🔴 {uname} (has HDD)")
+        else:
+            user_list.append(f"🟢 {uname}")
+    
+    return user_list
+
+def extract_username_from_selection(selection):
+    """Extract actual username from formatted selection string"""
+    if selection in ["-- Not Assigned --", ""]:
+        return None
+    # Remove emoji and status indicator
+    if selection.startswith("🔴 ") or selection.startswith("🟢 "):
+        uname = selection[2:].strip()  # Remove emoji
+        if " (has HDD)" in uname:
+            uname = uname.replace(" (has HDD)", "")
+        return uname
+    return selection
+
+def render_settings_tab(user):
+    """Manage Units and Vendors lists"""
+    st.subheader("⚙️ Settings - Manage Options")
+    
+    tab1, tab2 = st.tabs(["🏢 Units", "🏭 Vendors"])
+    
+    with tab1:
+        st.markdown("##### Unit Management")
+        
+        # Display units in table
+        try:
+            with db_connection() as conn:
+                c = conn.cursor()
+                units = c.execute("SELECT id, name FROM options WHERE type='unit' ORDER BY name").fetchall()
+        except:
+            units = []
+        
+        if units:
+            df = pd.DataFrame([{"ID": u['id'], "Unit Name": u['name']} for u in units])
+            st.dataframe(df, use_container_width=True, hide_index=True, height=300)
+        else:
+            st.info("No units configured")
+        
         col1, col2 = st.columns(2)
         
         with col1:
-            # Get available HDDs
-            try:
-                with db_connection() as conn:
-                    c = conn.cursor()
-                    hdds = c.execute("""
-                        SELECT serial_no, unit_space FROM hdd_records 
-                        WHERE team_code IS NULL OR team_code = ''
-                    """).fetchall()
-                    hdd_list = [f"{h['serial_no']} - {h['unit_space']}" for h in hdds]
-            except:
-                hdd_list = []
-            
-            selected_hdd = st.selectbox("Select HDD", hdd_list if hdd_list else [""])
+            st.markdown("###### ➕ Add Unit")
+            with st.form("add_unit_form", clear_on_submit=True):
+                new_unit = st.text_input("Unit Name", placeholder="e.g., 4(9) Pune")
+                if st.form_submit_button("Add Unit", use_container_width=True):
+                    if new_unit:
+                        try:
+                            with db_connection() as conn:
+                                c = conn.cursor()
+                                c.execute("INSERT INTO options (type, name) VALUES (?, ?)", ('unit', new_unit))
+                                conn.commit()
+                            st.success(f"✅ Added: {new_unit}")
+                            log_action(user, f"add_unit:{new_unit}")
+                            st.rerun()
+                        except Exception as e:
+                            if 'unique' in str(e).lower():
+                                st.error("❌ Unit already exists")
+                            else:
+                                st.error(f"❌ {e}")
+                    else:
+                        st.error("⚠️ Enter unit name")
         
         with col2:
-            # Get approved users
-            try:
-                with db_connection() as conn:
-                    c = conn.cursor()
-                    users = c.execute("SELECT username FROM users WHERE role='user' AND approved=1").fetchall()
-                    user_list = [u['username'] for u in users]
-            except:
-                user_list = []
+            st.markdown("###### 🗑️ Remove Unit")
+            with st.form("del_unit_form"):
+                unit_list = [u['name'] for u in units] if units else []
+                del_unit = st.selectbox("Select Unit", unit_list if unit_list else ["No units available"])
+                if st.form_submit_button("Remove Unit", use_container_width=True):
+                    if del_unit and del_unit != "No units available":
+                        with db_connection() as conn:
+                            c = conn.cursor()
+                            c.execute("DELETE FROM options WHERE type='unit' AND name=?", (del_unit,))
+                            conn.commit()
+                        st.success(f"✅ Removed: {del_unit}")
+                        log_action(user, f"remove_unit:{del_unit}")
+                        st.rerun()
+    
+    with tab2:
+        st.markdown("##### Vendor Management")
+        
+        # Display vendors in table
+        try:
+            with db_connection() as conn:
+                c = conn.cursor()
+                vendors = c.execute("SELECT id, name FROM options WHERE type='vendor' ORDER BY name").fetchall()
+        except:
+            vendors = []
+        
+        if vendors:
+            df = pd.DataFrame([{"ID": v['id'], "Vendor Name": v['name']} for v in vendors])
+            st.dataframe(df, use_container_width=True, hide_index=True, height=300)
+        else:
+            st.info("No vendors configured")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("###### ➕ Add Vendor")
+            with st.form("add_vendor_form", clear_on_submit=True):
+                new_vendor = st.text_input("Vendor Name", placeholder="e.g., NewVendor Inc")
+                if st.form_submit_button("Add Vendor", use_container_width=True):
+                    if new_vendor:
+                        try:
+                            with db_connection() as conn:
+                                c = conn.cursor()
+                                c.execute("INSERT INTO options (type, name) VALUES (?, ?)", ('vendor', new_vendor))
+                                conn.commit()
+                            st.success(f"✅ Added: {new_vendor}")
+                            log_action(user, f"add_vendor:{new_vendor}")
+                            st.rerun()
+                        except Exception as e:
+                            if 'unique' in str(e).lower():
+                                st.error("❌ Vendor already exists")
+                            else:
+                                st.error(f"❌ {e}")
+                    else:
+                        st.error("⚠️ Enter vendor name")
+        
+        with col2:
+            st.markdown("###### 🗑️ Remove Vendor")
+            with st.form("del_vendor_form"):
+                vendor_list = [v['name'] for v in vendors] if vendors else []
+                del_vendor = st.selectbox("Select Vendor", vendor_list if vendor_list else ["No vendors available"])
+                if st.form_submit_button("Remove Vendor", use_container_width=True):
+                    if del_vendor and del_vendor != "No vendors available":
+                        with db_connection() as conn:
+                            c = conn.cursor()
+                            c.execute("DELETE FROM options WHERE type='vendor' AND name=?", (del_vendor,))
+                            conn.commit()
+                        st.success(f"✅ Removed: {del_vendor}")
+                        log_action(user, f"remove_vendor:{del_vendor}")
+                        st.rerun()
+
+def render_add_assign_hdd_tab(user):
+    """Admin adds HDD to system and optionally assigns to user"""
+    st.subheader("💿 Add & Assign HDD")
+    
+    # Get dynamic options
+    unit_options = get_options('unit')
+    
+    tab1, tab2 = st.tabs(["➕ Add New HDD", "📤 Assign Existing HDD"])
+    
+    with tab1:
+        with st.form("add_hdd_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
             
-            team_code = st.selectbox("Assign to User", user_list if user_list else [""])
-        
-        notes = st.text_area("Assignment Notes", placeholder="Assignment details...")
-        
-        if st.form_submit_button("📤 Assign HDD", use_container_width=True):
-            if not selected_hdd or not team_code:
-                st.error("⚠️ Select HDD and User")
-            else:
+            with col1:
+                serial_no = st.text_input("Serial No", placeholder="Scan or enter S.N.")
+                unit = st.selectbox("Unit", unit_options)
+                hd_space = st.selectbox("HD Space", ["1TB", "2TB SSD", "4TB", "8TB"])
+            
+            with col2:
+                # Get approved users for optional assignment with HDD status
                 try:
-                    serial_no = selected_hdd.split(" - ")[0]
                     with db_connection() as conn:
                         c = conn.cursor()
-                        now = datetime.utcnow().isoformat()
-                        update_note = f"\n[ASSIGNED {now} by Admin to {team_code}]: {notes}"
-                        c.execute("""
-                            UPDATE hdd_records 
-                            SET team_code=?, status='issued', data_details=COALESCE(data_details, '') || ?
-                            WHERE serial_no=?
-                        """, (team_code, update_note, serial_no))
-                        conn.commit()
-                    st.success(f"✅ HDD {serial_no} assigned to {team_code}")
-                    log_action(user, f"assign_hdd:{serial_no}:{team_code}")
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Error: {e}")
+                        users = c.execute("SELECT username FROM users WHERE role='user' AND approved=1").fetchall()
+                        user_list = format_user_list_with_hdd_status(users, include_not_assigned=True)
+                except:
+                    user_list = ["-- Not Assigned --"]
+                
+                assign_to = st.selectbox("Assign to User (Optional)", user_list, label_visibility="visible")
+                st.caption("🟢 = Available | 🔴 = Already has HDD")
+            
+            if st.form_submit_button("💾 Add HDD", use_container_width=True):
+                if not serial_no:
+                    st.error("⚠️ Serial No required")
+                else:
+                    try:
+                        with db_connection() as conn:
+                            c = conn.cursor()
+                            now = datetime.utcnow().isoformat()
+                            
+                            # Determine if assigned - extract actual username
+                            team_code = extract_username_from_selection(assign_to)
+                            status = "issued" if team_code else "available"
+                            
+                            c.execute("""
+                                INSERT INTO hdd_records 
+                                (serial_no, unit, unit_space, status, team_code, created_by, created_on, barcode_value)
+                                VALUES (?,?,?,?,?,?,?,?)
+                            """, (serial_no, unit, hd_space, status, team_code, user, now, serial_no))
+                            conn.commit()
+                        
+                        if team_code:
+                            st.success(f"✅ HDD {serial_no} added and assigned to {team_code}")
+                            log_action(user, f"add_assign_hdd:{serial_no}:{team_code}")
+                        else:
+                            st.success(f"✅ HDD {serial_no} added to system")
+                            log_action(user, f"add_hdd:{serial_no}")
+                        st.rerun()
+                    except Exception as e:
+                        if 'unique' in str(e).lower():
+                            st.error("❌ Serial No already exists")
+                        else:
+                            st.error(f"❌ Error: {e}")
+    
+    with tab2:
+        with st.form("assign_hdd_form", clear_on_submit=True):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                # Get available HDDs
+                try:
+                    with db_connection() as conn:
+                        c = conn.cursor()
+                        hdds = c.execute("""
+                            SELECT serial_no, unit_space FROM hdd_records 
+                            WHERE team_code IS NULL OR team_code = ''
+                        """).fetchall()
+                        hdd_list = [f"{h['serial_no']} - {h['unit_space']}" for h in hdds]
+                except:
+                    hdd_list = []
+                
+                selected_hdd = st.selectbox("Select HDD", hdd_list if hdd_list else [""])
+            
+            with col2:
+                # Get approved users with HDD status
+                try:
+                    with db_connection() as conn:
+                        c = conn.cursor()
+                        users = c.execute("SELECT username FROM users WHERE role='user' AND approved=1").fetchall()
+                        user_list = format_user_list_with_hdd_status(users, include_not_assigned=False)
+                except:
+                    user_list = []
+                
+                team_code_selection = st.selectbox("Assign to User", user_list if user_list else [""])
+                st.caption("🟢 = Available | 🔴 = Already has HDD")
+            
+            if st.form_submit_button("📤 Assign HDD", use_container_width=True):
+                team_code = extract_username_from_selection(team_code_selection)
+                if not selected_hdd or not team_code:
+                    st.error("⚠️ Select HDD and User")
+                else:
+                    try:
+                        serial_no = selected_hdd.split(" - ")[0]
+                        with db_connection() as conn:
+                            c = conn.cursor()
+                            c.execute("""
+                                UPDATE hdd_records 
+                                SET team_code=?, status='issued'
+                                WHERE serial_no=?
+                            """, (team_code, serial_no))
+                            conn.commit()
+                        st.success(f"✅ HDD {serial_no} assigned to {team_code}")
+                        log_action(user, f"assign_hdd:{serial_no}:{team_code}")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
 
 def render_extraction_tab(user):
     """Admin disburses to vendor when HDD received from user"""
     st.subheader("🔬 Extraction Management")
+    
+    # Get dynamic options
+    vendor_options = get_options('vendor')
     
     tab1, tab2 = st.tabs(["Send to Vendor", "Extraction Records"])
     
@@ -147,8 +348,20 @@ def render_extraction_tab(user):
                     hdd_list = []
                 
                 selected_hdd = st.selectbox("Select Sealed HDD", hdd_list if hdd_list else [""])
-                extraction_vendor = st.text_input("Extraction Vendor", placeholder="e.g., Cyint")
+                extraction_vendor = st.selectbox("Extraction Vendor", vendor_options)
                 date_extraction_start = st.date_input("Date of Extraction Start")
+                
+                # Get approved users for assignment with HDD status
+                try:
+                    with db_connection() as conn:
+                        c = conn.cursor()
+                        users = c.execute("SELECT username FROM users WHERE role='user' AND approved=1").fetchall()
+                        user_list = format_user_list_with_hdd_status(users, include_not_assigned=True)
+                except:
+                    user_list = ["-- Not Assigned --"]
+                
+                assign_to_user = st.selectbox("Assign to User (Optional)", user_list)
+                st.caption("🟢 = Available | 🔴 = Already has HDD")
             
             with col2:
                 extracted_hdd_sn = st.text_input("Extracted HDD S.No.", placeholder="New HDD for extracted data")
@@ -162,6 +375,7 @@ def render_extraction_tab(user):
                     try:
                         original_sn = selected_hdd.split(" (")[0]
                         working_copies = [s.strip() for s in working_copy_sns.split('\n') if s.strip()]
+                        assigned_user = extract_username_from_selection(assign_to_user)
                         
                         with db_connection() as conn:
                             c = conn.cursor()
@@ -172,17 +386,20 @@ def render_extraction_tab(user):
                                 INSERT INTO extraction_records
                                 (original_hdd_sn, unit, unit_space, team_code, data_details,
                                  date_extraction_start, extracted_hdd_sn, extracted_by, 
-                                 working_copy_sns, date_receiving, created_by, created_on)
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                                 working_copy_sns, date_receiving, assigned_user, created_by, created_on)
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                             """, (original_sn, orig['unit'], orig['unit_space'], orig['team_code'],
                                   orig['data_details'], date_extraction_start.isoformat(),
                                   extracted_hdd_sn, extraction_vendor, json.dumps(working_copies),
-                                  date_receiving.isoformat(), user, now))
+                                  date_receiving.isoformat(), assigned_user, user, now))
                             
                             c.execute("UPDATE hdd_records SET status='in_extraction' WHERE serial_no=?", (original_sn,))
                             conn.commit()
                         
-                        st.success(f"✅ HDD {original_sn} sent for extraction")
+                        msg = f"✅ HDD {original_sn} sent for extraction to {extraction_vendor}"
+                        if assigned_user:
+                            msg += f" (assigned to {assigned_user})"
+                        st.success(msg)
                         log_action(user, f"extraction_send:{original_sn}:{extraction_vendor}")
                         st.rerun()
                     except Exception as e:
@@ -311,7 +528,11 @@ def render_edit_records_tab(user):
                     status = st.selectbox("Status", ["available", "issued", "sealed", "returned", "in_extraction"], 
                                         index=["available", "issued", "sealed", "returned", "in_extraction"].index(record['status']) if record['status'] in ["available", "issued", "sealed", "returned", "in_extraction"] else 0)
                     unit_space = st.text_input("Unit Space", value=record['unit_space'] or "")
-                    unit = st.text_input("Unit", value=record['unit'] or "")
+                    # Use dropdown for unit with current value as default
+                    unit_options = get_options('unit')
+                    current_unit = record['unit'] or unit_options[0] if unit_options else ""
+                    unit_idx = unit_options.index(current_unit) if current_unit in unit_options else 0
+                    unit = st.selectbox("Unit", unit_options, index=unit_idx)
                 
                 data_details = st.text_area("Data Details", value=record['data_details'] or "", height=150)
                 
@@ -462,16 +683,17 @@ def render_subusers_tab(user):
         col1, col2 = st.columns(2)
         
         with col1:
-            # Get users for parent selection
+            # Get users for parent selection with HDD status
             try:
                 with db_connection() as conn:
                     c = conn.cursor()
                     users_list = c.execute("SELECT username FROM users WHERE role='user' AND approved=1").fetchall()
-                    parent_users = [u['username'] for u in users_list]
+                    parent_users = format_user_list_with_hdd_status(users_list, include_not_assigned=False)
             except:
                 parent_users = []
             
-            parent_team = st.selectbox("Parent User", parent_users if parent_users else [""])
+            parent_team_selection = st.selectbox("Parent User", parent_users if parent_users else [""])
+            st.caption("🟢 = Available | 🔴 = Already has HDD")
             uname = st.text_input("Subuser Username", placeholder="e.g., MSD-1")
         
         with col2:
@@ -479,6 +701,7 @@ def render_subusers_tab(user):
             st.caption("⏰ Auto-expires in 7 days")
         
         if st.form_submit_button("Create Subuser", use_container_width=True):
+            parent_team = extract_username_from_selection(parent_team_selection)
             if not uname or not pwd or not parent_team:
                 st.error("⚠️ Fill all fields")
             elif len(pwd) < 6:
@@ -625,44 +848,44 @@ def render_logs_tab():
 
 def admin_panel(user):
     """Main admin panel"""
-    st.header("👑 Admin Panel (DIAL)")
+    st.header("Admin Panel (DIAL)")
     st.caption(f"Logged in as: {user}")
     
     tabs = st.tabs([
-        "➕ Add HDD", "📤 Assign HDD", "🔬 Extraction", "🔍 Analysis", 
+        "💿 Add/Assign HDD", "🔬 Extraction", "🔍 Analysis", 
         "✏️ Edit Records", "👥 Users", "👤 Subusers", "✔️ Approvals", 
-        "💾 Records", "📥 Exports", "📋 Logs"
+        "💾 Records", "📥 Exports", "📋 Logs", "⚙️ Settings"
     ])
     
     with tabs[0]:
-        render_add_hdd_tab(user)
+        render_add_assign_hdd_tab(user)
     
     with tabs[1]:
-        render_assign_hdd_tab(user)
-    
-    with tabs[2]:
         render_extraction_tab(user)
     
-    with tabs[3]:
+    with tabs[2]:
         render_analysis_tab(user)
     
-    with tabs[4]:
+    with tabs[3]:
         render_edit_records_tab(user)
     
-    with tabs[5]:
+    with tabs[4]:
         render_users_tab(user)
     
-    with tabs[6]:
+    with tabs[5]:
         render_subusers_tab(user)
     
-    with tabs[7]:
+    with tabs[6]:
         render_approve_users_tab(user)
     
-    with tabs[8]:
+    with tabs[7]:
         render_records_tab()
     
-    with tabs[9]:
+    with tabs[8]:
         render_exports_tab()
     
-    with tabs[10]:
+    with tabs[9]:
         render_logs_tab()
+    
+    with tabs[10]:
+        render_settings_tab(user)

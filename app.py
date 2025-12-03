@@ -6,10 +6,50 @@ from db import init_db, get_conn
 from utils import (check_password, hash_password, get_user, log_action, 
                    create_user, ensure_default_admin)
 import admin, user_panel, subuser_panel
+from PIL import Image
+
+def fix_selectbox_color():
+    st.markdown("""
+        <style>
+
+        /* Fix selected text inside the selectbox */
+        div[data-baseweb="select"] > div {
+            color: black !important;
+        }
+
+        /* Fix dropdown menu text */
+        div[data-baseweb="menu"] div {
+            color: black !important;
+        }
+
+        /* Fix placeholder text */
+        div[data-baseweb="select"] span {
+            color: black !important;
+        }
+
+        /* Fix selected item highlight */
+        div[data-baseweb="select"] [aria-selected="true"] {
+            background-color: #dce6ff !important;
+            color: black !important;
+        }
+
+        /* Control itself (the box) */
+        div[data-baseweb="select"] {
+            background-color: white !important;
+            color: black !important;
+        }
+
+        /* Fix arrow icon visibility */
+        div[data-baseweb="select"] svg {
+            fill: black !important;
+        }
+
+        </style>
+    """, unsafe_allow_html=True)
 
 # Page config
 st.set_page_config(
-    page_title='DTRACK - Digital Analytics & Intelligence Lab',
+    page_title='DIAL - Digital Intelligence & Analytics Lab',
     page_icon='💽',
     layout='wide',
     initial_sidebar_state='expanded'
@@ -18,179 +58,14 @@ st.set_page_config(
 # Initialize
 init_db()
 ensure_default_admin()
-
+fix_selectbox_color()
 # Enhanced CSS
-st.markdown("""
-<style>
-/* Variables */
-:root {
-    --brand: #005792;
-    --brand-dark: #003d64;
-    --brand-light: #0077b6;
-    --bg: #f4f7fb;
-    --card-bg: #ffffff;
-    --ink: #002b45;
-    --ink-light: #4a5568;
-    --success: #059669;
-    --warning: #d97706;
-    --error: #dc2626;
-    --border: #e2e8f0;
-    --shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.08);
-}
 
-/* Base */
-[data-testid="stAppViewContainer"] {
-    background: var(--bg);
-}
-
-div[data-testid="stSidebar"] {
-    background: linear-gradient(180deg, var(--ink) 0%, #001a2e 100%);
-    color: #fff;
-}
-
-div[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] {
-    color: #fff;
-}
-
-/* Typography */
-h1, h2, h3 { 
-    color: var(--ink);
-    font-weight: 600;
-}
-
-h1 { margin-bottom: 0.3rem; }
-
-.caption { 
-    color: var(--ink-light);
-    font-size: 0.9rem;
-    margin-top: -0.5rem;
-}
-
-/* Buttons */
-.stButton > button {
-    background-color: var(--brand);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    padding: 0.6rem 1.5rem;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    box-shadow: var(--shadow);
-}
-
-.stButton > button:hover {
-    background-color: var(--brand-dark);
-    box-shadow: 0 4px 6px rgba(0,0,0,0.15);
-    transform: translateY(-1px);
-}
-
-.stButton > button:active {
-    transform: translateY(0);
-}
-
-/* Inputs */
-.stTextInput > div > div > input,
-.stTextArea textarea,
-.stSelectbox > div > div,
-.stDateInput > div > div > input {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.6rem 0.8rem;
-    background: var(--card-bg);
-    transition: border-color 0.2s ease;
-}
-
-.stTextInput > div > div > input:focus,
-.stTextArea textarea:focus,
-.stSelectbox > div > div:focus-within,
-.stDateInput > div > div > input:focus {
-    border-color: var(--brand);
-    box-shadow: 0 0 0 1px var(--brand);
-}
-
-/* Forms */
-.stForm {
-    background: var(--card-bg);
-    padding: 1.5rem;
-    border-radius: 12px;
-    box-shadow: var(--shadow);
-    border: 1px solid var(--border);
-}
-
-/* Expander */
-.streamlit-expanderHeader {
-    background: var(--card-bg);
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    font-weight: 500;
-}
-
-/* Messages */
-.stAlert {
-    border-radius: 8px;
-    padding: 1rem;
-    border-left: 4px solid;
-}
-
-/* Sidebar */
-div[data-testid="stSidebar"] .stButton > button {
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
-}
-
-div[data-testid="stSidebar"] .stButton > button:hover {
-    background: rgba(255,255,255,0.2);
-}
-
-div[data-testid="stSidebar"] .stRadio > label {
-    color: #fff !important;
-}
-
-/* DataFrames */
-.stDataFrame {
-    border-radius: 8px;
-    overflow: hidden;
-    box-shadow: var(--shadow);
-}
-
-/* Mobile responsive */
-@media (max-width: 768px) {
-    .block-container {
-        padding: 0.5rem 0.8rem;
-    }
-    
-    h1 { font-size: 1.5rem; }
-    h2 { font-size: 1.25rem; }
-    h3 { font-size: 1.1rem; }
-    
-    .stButton > button {
-        width: 100%;
-        padding: 0.7rem 1rem;
-    }
-    
-    .stForm {
-        padding: 1rem;
-    }
-    
-    [data-testid="stSidebarContent"] {
-        font-size: 0.95rem;
-    }
-    
-    .stDataFrame {
-        font-size: 0.85rem;
-    }
-}
-
-/* Loading spinner */
-.stSpinner > div {
-    border-color: var(--brand) !important;
-}
-</style>
-""", unsafe_allow_html=True)
 
 # Header
-st.title("💽 DTRACK")
-st.caption("DIAL - Digital Analytics & Intelligence Lab")
+logo = Image.open('assets/logo.jpg')
+st.image(logo, width=450)
+# st.caption("DIAL - Digital Intelligence & Analytics Lab")
 
 # Initialize session state
 def init_session_state():
@@ -409,7 +284,7 @@ def main():
     try:
         if not st.session_state.logged_in:
             # Sidebar for unauthenticated users
-            st.sidebar.title('👋 Welcome to DTRACK')
+            st.sidebar.title('Welcome to DTRACK')
             action = st.sidebar.radio(
                 'Choose Action',
                 ['Login', 'Register', 'About'],
