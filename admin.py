@@ -248,19 +248,15 @@ def render_settings_tab(user):
 def render_add_assign_hdd_tab(user):
     """Admin adds HDD to system and optionally assigns to user"""
     st.subheader("💿 Add & Assign HDD")
-    
-    # Get dynamic options
-    unit_options = get_options('unit')
-    
+
     tab1, tab2 = st.tabs(["➕ Add New HDD", "📤 Assign Existing HDD"])
-    
+
     with tab1:
         with st.form("add_hdd_form", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 serial_no = st.text_input("Serial No", placeholder="Scan or enter S.N.")
-                unit = st.selectbox("Unit", unit_options)
                 hd_space = st.selectbox("HD Space", ["1TB", "2TB SSD", "4TB", "8TB"])
             
             with col2:
@@ -290,10 +286,10 @@ def render_add_assign_hdd_tab(user):
                             status = "issued" if team_code else "available"
                             
                             c.execute("""
-                                INSERT INTO hdd_records 
-                                (serial_no, unit, unit_space, status, team_code, created_by, created_on, barcode_value)
-                                VALUES (?,?,?,?,?,?,?,?)
-                            """, (serial_no, unit, hd_space, status, team_code, user, now, serial_no))
+                                INSERT INTO hdd_records
+                                (serial_no, unit_space, status, team_code, created_by, created_on, barcode_value)
+                                VALUES (?,?,?,?,?,?,?)
+                            """, (serial_no, hd_space, status, team_code, user, now, serial_no))
                             conn.commit()
                         
                         if team_code:
@@ -426,11 +422,11 @@ def render_extraction_tab(user):
                             now = datetime.utcnow().isoformat()
                             c.execute("""
                                 INSERT INTO extraction_records
-                                (original_hdd_sn, unit, unit_space, team_code, data_details,
-                                 date_extraction_start, extracted_hdd_sn, extracted_by, 
+                                (original_hdd_sn, unit_space, team_code, data_details,
+                                 date_extraction_start, extracted_hdd_sn, extracted_by,
                                  working_copy_sns, date_receiving, assigned_user, created_by, created_on)
-                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
-                            """, (original_sn, orig['unit'], orig['unit_space'], orig['team_code'],
+                                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                            """, (original_sn, orig['unit_space'], orig['team_code'],
                                   orig['data_details'], date_extraction_start.isoformat(),
                                   extracted_hdd_sn, extraction_vendor, json.dumps(working_copies),
                                   date_receiving.isoformat(), assigned_user, user, now))
@@ -567,14 +563,9 @@ def render_edit_records_tab(user):
                     date_seized = st.text_input("Date Seized", value=record['date_seized'] or "")
                 
                 with col2:
-                    status = st.selectbox("Status", ["available", "issued", "sealed", "returned", "in_extraction"], 
+                    status = st.selectbox("Status", ["available", "issued", "sealed", "returned", "in_extraction"],
                                         index=["available", "issued", "sealed", "returned", "in_extraction"].index(record['status']) if record['status'] in ["available", "issued", "sealed", "returned", "in_extraction"] else 0)
                     unit_space = st.text_input("Unit Space", value=record['unit_space'] or "")
-                    # Use dropdown for unit with current value as default
-                    unit_options = get_options('unit')
-                    current_unit = record['unit'] or unit_options[0] if unit_options else ""
-                    unit_idx = unit_options.index(current_unit) if current_unit in unit_options else 0
-                    unit = st.selectbox("Unit", unit_options, index=unit_idx)
                 
                 data_details = st.text_area("Data Details", value=record['data_details'] or "", height=150)
                 
@@ -583,12 +574,12 @@ def render_edit_records_tab(user):
                         with db_connection() as conn:
                             c = conn.cursor()
                             c.execute("""
-                                UPDATE hdd_records 
+                                UPDATE hdd_records
                                 SET team_code=?, premise_name=?, date_search=?, date_seized=?,
-                                    status=?, unit_space=?, unit=?, data_details=?
+                                    status=?, unit_space=?, data_details=?
                                 WHERE serial_no=?
-                            """, (team_code, premise_name, date_search, date_seized, status, 
-                                  unit_space, unit, data_details, serial_no))
+                            """, (team_code, premise_name, date_search, date_seized, status,
+                                  unit_space, data_details, serial_no))
                             conn.commit()
                         st.success(f"✅ Updated {serial_no}")
                         log_action(user, f"edit_record:{serial_no}")

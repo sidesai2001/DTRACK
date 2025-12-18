@@ -3,6 +3,15 @@ import os
 
 DB_PATH = os.getenv("DB_PATH", "dtrack.db")
 
+# TEMPORARY: Delete old database to apply schema changes
+# Remove this block after first deployment
+if os.path.exists(DB_PATH):
+    try:
+        os.remove(DB_PATH)
+        print(f"✅ Old database deleted: {DB_PATH}")
+    except Exception as e:
+        print(f"⚠️ Could not delete database: {e}")
+
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
@@ -40,7 +49,6 @@ def init_db():
         CREATE TABLE IF NOT EXISTS hdd_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             serial_no TEXT UNIQUE NOT NULL,
-            unit TEXT,
             unit_space TEXT,
             team_code TEXT,
             assigned_subuser TEXT,
@@ -62,7 +70,6 @@ def init_db():
         CREATE TABLE IF NOT EXISTS extraction_records (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             original_hdd_sn TEXT NOT NULL,
-            unit TEXT,
             unit_space TEXT,
             team_code TEXT,
             data_details TEXT,
