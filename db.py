@@ -5,12 +5,7 @@ DB_PATH = os.getenv("DB_PATH", "dtrack.db")
 
 # TEMPORARY: Delete old database to apply schema changes
 # Remove this block after first deployment
-if os.path.exists(DB_PATH):
-    try:
-        os.remove(DB_PATH)
-        print(f"✅ Old database deleted: {DB_PATH}")
-    except Exception as e:
-        print(f"⚠️ Could not delete database: {e}")
+
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
