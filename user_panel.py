@@ -34,28 +34,69 @@ STATUS_COLORS = {
     'in_extraction': {'bg': '#f8d7da', 'text': '#721c24'},   # Red/Pink
 }
 
+# Assignment color mapping (overlay on status colors)
+ASSIGNMENT_COLORS = {
+    'user_only': {'bg': '#e8f5e9', 'text': '#2e7d32', 'border': '#4caf50'},      # Light green - assigned to user only
+    'subuser': {'bg': '#fff9c4', 'text': '#f57f17', 'border': '#fbc02d'},        # Light yellow - assigned to subuser
+    'sealed_user': {'bg': '#bbdefb', 'text': '#1565c0', 'border': '#2196f3'},    # Light blue - sealed, user level
+    'sealed_subuser': {'bg': '#c5cae9', 'text': '#283593', 'border': '#3f51b5'}, # Light indigo - sealed, subuser level
+}
+
 def style_status_dataframe(df):
-    """Apply color styling to dataframe based on status column"""
+    """Apply color styling to dataframe based on status and assignment"""
     if df.empty or 'status' not in df.columns:
         return df
-    
+
     def highlight_row(row):
         status = row.get('status', '')
-        colors = STATUS_COLORS.get(status, {'bg': 'white', 'text': 'black'})
-        return [f'background-color: {colors["bg"]}; color: {colors["text"]}'] * len(row)
-    
+        assigned_subuser = row.get('assigned_subuser', None)
+
+        # Determine color based on status and assignment
+        if status == 'issued':
+            if assigned_subuser and assigned_subuser.strip():
+                # Issued to subuser - bright yellow/amber
+                colors = {'bg': '#fff3cd', 'text': '#856404', 'border': '#ffc107'}
+            else:
+                # Issued to user only - light amber
+                colors = {'bg': '#fff8e1', 'text': '#f57f17', 'border': '#ffb300'}
+        elif status == 'sealed':
+            if assigned_subuser and assigned_subuser.strip():
+                # Sealed with subuser - deep blue
+                colors = {'bg': '#bbdefb', 'text': '#0d47a1', 'border': '#1976d2'}
+            else:
+                # Sealed user only - light blue
+                colors = {'bg': '#e3f2fd', 'text': '#1565c0', 'border': '#42a5f5'}
+        else:
+            # Other statuses use default colors
+            colors = STATUS_COLORS.get(status, {'bg': 'white', 'text': 'black', 'border': '#ddd'})
+            if 'border' not in colors:
+                colors['border'] = '#ddd'
+
+        # Add border for assigned subusers
+        border_style = f"3px solid {colors.get('border', '#ddd')}" if assigned_subuser and assigned_subuser.strip() else ""
+
+        return [f"background-color: {colors['bg']}; color: {colors['text']}; border-left: {border_style}; font-weight: {'600' if assigned_subuser and assigned_subuser.strip() else '400'}" for _ in row]
+
     styled = df.style.apply(highlight_row, axis=1)
     return styled
 
 def render_status_legend():
-    """Render status color legend"""
+    """Render status color legend with assignment indicators"""
     st.markdown("""
-    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 10px; padding: 10px; background: #f8f9fa; border-radius: 8px;">
-        <span style="padding: 4px 10px; background: #d4edda; color: #155724; border-radius: 4px; font-size: 12px;">🟢 Available</span>
-        <span style="padding: 4px 10px; background: #fff3cd; color: #856404; border-radius: 4px; font-size: 12px;">🟡 Issued</span>
-        <span style="padding: 4px 10px; background: #cce5ff; color: #004085; border-radius: 4px; font-size: 12px;">🔵 Sealed</span>
-        <span style="padding: 4px 10px; background: #e2e3e5; color: #383d41; border-radius: 4px; font-size: 12px;">⚪ Returned</span>
-        <span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 4px; font-size: 12px;">🔴 In Extraction</span>
+    <div style="margin-bottom: 15px;">
+        <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; padding: 10px; background: #f8f9fa; border-radius: 8px;">
+            <div style="font-weight: 600; color: #333; width: 100%; margin-bottom: 5px;">Status Colors:</div>
+            <span style="padding: 4px 10px; background: #d4edda; color: #155724; border-radius: 4px; font-size: 11px;">🟢 Available</span>
+            <span style="padding: 4px 10px; background: #fff8e1; color: #f57f17; border-radius: 4px; font-size: 11px;">🟡 Issued (User Only)</span>
+            <span style="padding: 4px 10px; background: #fff3cd; color: #856404; border-radius: 4px; font-size: 11px; border-left: 3px solid #ffc107; font-weight: 600;">🟠 Issued (Subuser)</span>
+            <span style="padding: 4px 10px; background: #e3f2fd; color: #1565c0; border-radius: 4px; font-size: 11px;">🔵 Sealed (User Only)</span>
+            <span style="padding: 4px 10px; background: #bbdefb; color: #0d47a1; border-radius: 4px; font-size: 11px; border-left: 3px solid #1976d2; font-weight: 600;">🔷 Sealed (Subuser)</span>
+            <span style="padding: 4px 10px; background: #e2e3e5; color: #383d41; border-radius: 4px; font-size: 11px;">⚪ Returned</span>
+            <span style="padding: 4px 10px; background: #f8d7da; color: #721c24; border-radius: 4px; font-size: 11px;">🔴 In Extraction</span>
+        </div>
+        <div style="padding: 8px 10px; background: #e8f4f8; border-radius: 6px; font-size: 11px; color: #0277bd;">
+            <strong>💡 Tip:</strong> Rows with <strong>thick colored left border</strong> and <strong>bold text</strong> indicate HDDs assigned to subusers
+        </div>
     </div>
     """, unsafe_allow_html=True)
 def get_subusers_with_hdd(parent_user):
@@ -127,19 +168,25 @@ def render_my_hdds_tab(user):
         rows = []
     
     df = safe_dataframe(rows, "hdd_records")
-    
+
     if not df.empty:
         # Status metrics
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col3, col4 = st.columns(4)
+
+        # Calculate assignments
+        assigned_to_subuser = len(df[(df['assigned_subuser'].notna()) & (df['assigned_subuser'] != '')]) if 'assigned_subuser' in df.columns else 0
+
         with col1:
-            st.metric("📊 Total", len(df))
+            st.metric("📊 Total HDDs", len(df))
         with col2:
             issued = len(df[df['status'] == 'issued']) if 'status' in df.columns else 0
             st.metric("🟡 Issued", issued)
         with col3:
             sealed = len(df[df['status'] == 'sealed']) if 'status' in df.columns else 0
             st.metric("🔵 Sealed", sealed)
-        
+        with col4:
+            st.metric("👥 With Subuser", assigned_to_subuser)
+
         # Color-coded dataframe
         styled_df = style_status_dataframe(df)
         st.dataframe(styled_df, use_container_width=True, height=400)
@@ -469,7 +516,7 @@ def render_extraction_status_tab(user):
 
 def user_panel(user):
     """Main user (conducting team) panel"""
-    st.header("👤 User Panel (Conducting Team)")
+    st.header(f"👤 {user} (Conducting Team)")
     st.caption(f"Logged in as: {user}")
     
     tabs = st.tabs([

@@ -369,23 +369,50 @@ def render_extraction_tab(user):
     
     with tab1:
         st.markdown("##### Send HDD for Extraction (when received from User)")
+
+        # User selection filter (outside form for dynamic filtering)
+        try:
+            with db_connection() as conn:
+                c = conn.cursor()
+                users_with_sealed = c.execute("""
+                    SELECT DISTINCT team_code FROM hdd_records
+                    WHERE status='sealed' AND team_code IS NOT NULL
+                    ORDER BY team_code
+                """).fetchall()
+                user_options = ["All Users"] + [u['team_code'] for u in users_with_sealed]
+        except:
+            user_options = ["All Users"]
+
+        selected_user = st.selectbox("Filter by User", user_options, key="extraction_user_filter")
+
         with st.form("extraction_request", clear_on_submit=True):
             col1, col2 = st.columns(2)
-            
+
             with col1:
-                # Get sealed HDDs (returned by users)
+                # Get sealed HDDs (returned by users) filtered by selected user
                 try:
                     with db_connection() as conn:
                         c = conn.cursor()
-                        hdds = c.execute("""
-                            SELECT serial_no, team_code FROM hdd_records 
-                            WHERE status='sealed'
-                        """).fetchall()
-                        hdd_list = [f"{h['serial_no']} ({h['team_code']})" for h in hdds]
+                        if selected_user == "All Users":
+                            hdds = c.execute("""
+                                SELECT serial_no, team_code, unit_space FROM hdd_records
+                                WHERE status='sealed'
+                                ORDER BY team_code, serial_no
+                            """).fetchall()
+                        else:
+                            hdds = c.execute("""
+                                SELECT serial_no, team_code, unit_space FROM hdd_records
+                                WHERE status='sealed' AND team_code=?
+                                ORDER BY serial_no
+                            """, (selected_user,)).fetchall()
+                        hdd_list = [f"{h['serial_no']} - {h['unit_space']} (User: {h['team_code']})" for h in hdds]
                 except:
                     hdd_list = []
-                
-                selected_hdd = st.selectbox("Select Sealed HDD", hdd_list if hdd_list else [""])
+
+                selected_hdd = st.selectbox("Select Sealed HDD", hdd_list if hdd_list else ["No sealed HDDs available"])
+                if selected_user != "All Users":
+                    st.caption(f"📌 Showing HDDs for: {selected_user}")
+
                 extraction_vendor = st.selectbox("Extraction Vendor", vendor_options)
                 date_extraction_start = st.date_input("Date of Extraction Start")
                 
@@ -407,11 +434,12 @@ def render_extraction_tab(user):
                 date_receiving = st.date_input("Date of Receiving Extraction Copy")
             
             if st.form_submit_button("📤 Send for Extraction", use_container_width=True):
-                if not selected_hdd or not extraction_vendor:
-                    st.error("⚠️ Fill required fields")
+                if not selected_hdd or selected_hdd == "No sealed HDDs available" or not extraction_vendor:
+                    st.error("⚠️ Fill required fields and select a valid HDD")
                 else:
                     try:
-                        original_sn = selected_hdd.split(" (")[0]
+                        # Extract serial number from new format: "SN123 - 1TB (User: username)"
+                        original_sn = selected_hdd.split(" - ")[0]
                         working_copies = [s.strip() for s in working_copy_sns.split('\n') if s.strip()]
                         assigned_user = extract_username_from_selection(assign_to_user)
                         
@@ -445,16 +473,48 @@ def render_extraction_tab(user):
     
     with tab2:
         st.markdown("##### Extraction History")
+
+        # User filter for extraction records
+        col1, col2 = st.columns(2)
+        with col1:
+            try:
+                with db_connection() as conn:
+                    c = conn.cursor()
+                    users_in_extraction = c.execute("""
+                        SELECT DISTINCT team_code FROM extraction_records
+                        WHERE team_code IS NOT NULL
+                        ORDER BY team_code
+                    """).fetchall()
+                    extraction_user_options = ["All Users"] + [u['team_code'] for u in users_in_extraction]
+            except:
+                extraction_user_options = ["All Users"]
+
+            extraction_user_filter = st.selectbox("Filter by User", extraction_user_options, key="extraction_history_filter")
+
+        with col2:
+            limit = st.selectbox("Show Records", [50, 100, 200, 500], index=1)
+
         try:
             with db_connection() as conn:
                 c = conn.cursor()
-                rows = c.execute("SELECT * FROM extraction_records ORDER BY id DESC LIMIT 100").fetchall()
+                if extraction_user_filter == "All Users":
+                    rows = c.execute(f"""
+                        SELECT * FROM extraction_records
+                        ORDER BY id DESC LIMIT {limit}
+                    """).fetchall()
+                else:
+                    rows = c.execute(f"""
+                        SELECT * FROM extraction_records
+                        WHERE team_code=?
+                        ORDER BY id DESC LIMIT {limit}
+                    """, (extraction_user_filter,)).fetchall()
         except Exception as e:
             st.error(f"❌ Database error: {e}")
             rows = []
-        
+
         df = safe_dataframe(rows, "extraction_records")
         if not df.empty:
+            st.caption(f"📊 Showing {len(df)} records")
             st.dataframe(df, use_container_width=True, height=400)
         else:
             st.info("📭 No extraction records")
