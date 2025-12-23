@@ -106,40 +106,46 @@ def render_enter_data_tab(user):
                     st.error(f"❌ Error: {e}")
 
 def render_my_hdds_tab(user):
-    """View HDDs assigned to this subuser"""
-    st.subheader("💿 My Assigned HDDs")
-    
+    """View data entered by this subuser"""
+    st.subheader("💾 My Saved Data")
+
     parent = get_parent_user(user)
-    
+
     try:
         with db_connection() as conn:
             c = conn.cursor()
             rows = c.execute("""
-                SELECT serial_no, unit_space, premise_name, date_search, date_seized, status
-                FROM hdd_records 
-                WHERE team_code=? AND assigned_subuser=?
+                SELECT serial_no, premise_name, date_search, date_seized, data_details
+                FROM hdd_records
+                WHERE team_code=? AND assigned_subuser=? AND premise_name IS NOT NULL
                 ORDER BY id DESC
             """, (parent, user)).fetchall()
     except Exception as e:
         st.error(f"❌ Database error: {e}")
         rows = []
-    
-    df = safe_dataframe(rows, "hdd_records")
-    
-    if not df.empty:
-        st.caption(f"📊 Total: {len(df)} HDDs")
-        st.dataframe(df, use_container_width=True, height=400)
-        
-        # Stats
-        col1, col2 = st.columns(2)
-        with col1:
-            with_data = len(df[df['premise_name'].notna()]) if 'premise_name' in df.columns else 0
-            st.metric("With Data Entered", with_data)
-        with col2:
-            pending = len(df[df['premise_name'].isna()]) if 'premise_name' in df.columns else 0
-            st.metric("Pending Data Entry", pending)
+
+    if rows:
+        st.caption(f"📊 Total Data Entries: {len(rows)}")
+
+        # Display each data entry
+        for row in rows:
+            with st.expander(f"🗂️ {row['premise_name']} - HDD: {row['serial_no']}", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.write(f"**📍 Premise:** {row['premise_name']}")
+                    st.write(f"**🔍 Search Date:** {row['date_search']}")
+                with col2:
+                    st.write(f"**📦 Seized Date:** {row['date_seized']}")
+                    st.write(f"**💿 HDD Serial:** {row['serial_no']}")
+
+                st.markdown("---")
+                st.markdown("**📝 Data Details:**")
+                if row['data_details']:
+                    st.text_area("", value=row['data_details'], height=200, disabled=True, key=f"data_{row['serial_no']}", label_visibility="collapsed")
+                else:
+                    st.info("No data details recorded")
     else:
-        st.info("🔭 No HDDs assigned to you")
+        st.info("🔭 No data saved yet. Go to 'Enter Data' tab to add data.")
 
 def render_account_tab(user):
     """Display subuser account info"""

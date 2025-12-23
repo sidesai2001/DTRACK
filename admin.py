@@ -249,7 +249,7 @@ def render_add_assign_hdd_tab(user):
     """Admin adds HDD to system and optionally assigns to user"""
     st.subheader("💿 Add & Assign HDD")
 
-    tab1, tab2 = st.tabs(["➕ Add New HDD", "📤 Assign Existing HDD"])
+    tab1, tab2, tab3 = st.tabs(["➕ Add New HDD", "📤 Assign Existing HDD", "🗑️ Delete HDD"])
 
     with tab1:
         with st.form("add_hdd_form", clear_on_submit=True):
@@ -279,31 +279,41 @@ def render_add_assign_hdd_tab(user):
                     try:
                         with db_connection() as conn:
                             c = conn.cursor()
-                            now = datetime.utcnow().isoformat()
-                            
-                            # Determine if assigned - extract actual username
-                            team_code = extract_username_from_selection(assign_to)
-                            status = "issued" if team_code else "available"
-                            
-                            c.execute("""
-                                INSERT INTO hdd_records
-                                (serial_no, unit_space, status, team_code, created_by, created_on, barcode_value)
-                                VALUES (?,?,?,?,?,?,?)
-                            """, (serial_no, hd_space, status, team_code, user, now, serial_no))
-                            conn.commit()
-                        
-                        if team_code:
-                            st.success(f"✅ HDD {serial_no} added and assigned to {team_code}")
-                            log_action(user, f"add_assign_hdd:{serial_no}:{team_code}")
-                        else:
-                            st.success(f"✅ HDD {serial_no} added to system")
-                            log_action(user, f"add_hdd:{serial_no}")
-                        st.rerun()
+
+                            # Check if serial number already exists
+                            existing = c.execute(
+                                "SELECT serial_no, status, team_code FROM hdd_records WHERE serial_no=?",
+                                (serial_no,)
+                            ).fetchone()
+
+                            if existing:
+                                status_info = f"Status: {existing['status']}"
+                                if existing['team_code']:
+                                    status_info += f", Assigned to: {existing['team_code']}"
+                                st.error(f"❌ Serial No '{serial_no}' already exists in the system! ({status_info})")
+                            else:
+                                now = datetime.utcnow().isoformat()
+
+                                # Determine if assigned - extract actual username
+                                team_code = extract_username_from_selection(assign_to)
+                                status = "issued" if team_code else "available"
+
+                                c.execute("""
+                                    INSERT INTO hdd_records
+                                    (serial_no, unit_space, status, team_code, created_by, created_on, barcode_value)
+                                    VALUES (?,?,?,?,?,?,?)
+                                """, (serial_no, hd_space, status, team_code, user, now, serial_no))
+                                conn.commit()
+
+                                if team_code:
+                                    st.success(f"✅ HDD {serial_no} added and assigned to {team_code}")
+                                    log_action(user, f"add_assign_hdd:{serial_no}:{team_code}")
+                                else:
+                                    st.success(f"✅ HDD {serial_no} added to system")
+                                    log_action(user, f"add_hdd:{serial_no}")
+                                st.rerun()
                     except Exception as e:
-                        if 'unique' in str(e).lower():
-                            st.error("❌ Serial No already exists")
-                        else:
-                            st.error(f"❌ Error: {e}")
+                        st.error(f"❌ Error: {e}")
     
     with tab2:
         with st.form("assign_hdd_form", clear_on_submit=True):
@@ -355,6 +365,81 @@ def render_add_assign_hdd_tab(user):
                         st.success(f"✅ HDD {serial_no} assigned to {team_code}")
                         log_action(user, f"assign_hdd:{serial_no}:{team_code}")
                         st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {e}")
+
+    with tab3:
+        st.markdown("##### 🗑️ Delete HDD Record")
+        st.warning("⚠️ Warning: This action cannot be undone. Use with caution!")
+
+        # Get all HDDs for deletion
+        try:
+            with db_connection() as conn:
+                c = conn.cursor()
+                hdds = c.execute("""
+                    SELECT serial_no, unit_space, status, team_code, assigned_subuser
+                    FROM hdd_records
+                    ORDER BY id DESC
+                """).fetchall()
+                hdd_delete_list = [
+                    f"{h['serial_no']} - {h['unit_space']} ({h['status']}) - Team: {h['team_code'] or 'Unassigned'}"
+                    for h in hdds
+                ]
+        except:
+            hdd_delete_list = []
+
+        with st.form("delete_hdd_form"):
+            selected_hdd_delete = st.selectbox(
+                "Select HDD to Delete",
+                hdd_delete_list if hdd_delete_list else ["No HDDs available"]
+            )
+
+            # Show warning for HDDs with data
+            if selected_hdd_delete and selected_hdd_delete != "No HDDs available":
+                serial_to_delete = selected_hdd_delete.split(" - ")[0]
+                try:
+                    with db_connection() as conn:
+                        c = conn.cursor()
+                        record = c.execute(
+                            "SELECT premise_name, data_details FROM hdd_records WHERE serial_no=?",
+                            (serial_to_delete,)
+                        ).fetchone()
+
+                        if record and (record['premise_name'] or record['data_details']):
+                            st.error("⚠️ This HDD contains data entries. Deleting will remove all associated data!")
+                except:
+                    pass
+
+            confirm_delete = st.checkbox("I confirm I want to delete this HDD record")
+
+            if st.form_submit_button("🗑️ Delete HDD", type="primary", use_container_width=True):
+                if not confirm_delete:
+                    st.error("⚠️ Please confirm deletion by checking the box")
+                elif not selected_hdd_delete or selected_hdd_delete == "No HDDs available":
+                    st.error("⚠️ Please select a valid HDD")
+                else:
+                    try:
+                        serial_to_delete = selected_hdd_delete.split(" - ")[0]
+
+                        with db_connection() as conn:
+                            c = conn.cursor()
+
+                            # Check if HDD exists in extraction or analysis records
+                            extraction_check = c.execute(
+                                "SELECT COUNT(*) as cnt FROM extraction_records WHERE original_hdd_sn=?",
+                                (serial_to_delete,)
+                            ).fetchone()
+
+                            if extraction_check and extraction_check['cnt'] > 0:
+                                st.error(f"❌ Cannot delete: HDD {serial_to_delete} has extraction records. Delete those first.")
+                            else:
+                                # Delete the HDD record
+                                c.execute("DELETE FROM hdd_records WHERE serial_no=?", (serial_to_delete,))
+                                conn.commit()
+
+                                st.success(f"✅ HDD {serial_to_delete} deleted successfully")
+                                log_action(user, f"delete_hdd:{serial_to_delete}")
+                                st.rerun()
                     except Exception as e:
                         st.error(f"❌ Error: {e}")
 
@@ -880,47 +965,36 @@ def render_records_tab():
 def render_exports_tab():
     """Export records"""
     st.subheader("📥 Export Records")
-    
-    export_format = st.selectbox("Format", ["CSV", "JSON", "Excel"])
-    
+
+    export_format = st.selectbox("Format", ["JSON", "Excel"])
+
     try:
         with db_connection() as conn:
             c = conn.cursor()
             rows = c.execute("SELECT * FROM hdd_records ORDER BY id DESC").fetchall()
     except:
         rows = []
-    
+
     if rows:
         st.info(f"ℹ️ {len(rows)} records")
-        
+
         if st.button("📥 Prepare Download"):
             try:
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                
-                if export_format == "CSV":
-                    cols = rows[0].keys()
-                    buf = io.StringIO()
-                    writer = csv.writer(buf)
-                    writer.writerow(cols)
-                    for r in rows:
-                        writer.writerow([r[k] for k in cols])
-                    
-                    st.download_button("⬇️ Download CSV", buf.getvalue(), 
-                                     f"dtrack_{timestamp}.csv", "text/csv", use_container_width=True)
-                
-                elif export_format == "JSON":
+
+                if export_format == "JSON":
                     data = [dict(r) for r in rows]
                     st.download_button("⬇️ Download JSON", json.dumps(data, indent=2),
                                      f"dtrack_{timestamp}.json", "application/json", use_container_width=True)
-                
+
                 else:
                     df = pd.DataFrame([dict(r) for r in rows])
                     buf = io.BytesIO()
                     with pd.ExcelWriter(buf, engine='openpyxl') as writer:
                         df.to_excel(writer, index=False, sheet_name='Records')
-                    
+
                     st.download_button("⬇️ Download Excel", buf.getvalue(),
-                                     f"dtrack_{timestamp}.xlsx", 
+                                     f"dtrack_{timestamp}.xlsx",
                                      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                                      use_container_width=True)
             except Exception as e:
